@@ -1,10 +1,10 @@
-# Socratic Viva v2
+# Ora.IA
 
 > AI-powered multi-agent oral examination platform
 
 ## Overview
 
-Socratic Viva v2 is a platform that conducts adaptive oral exams via a pipeline of specialised AI agents:
+ORA.IA is a platform that conducts adaptive oral exams via a pipeline of specialised AI agents:
 - **Orchestrator** — deterministic routing (no LLM cost)
 - **Interrogator** — Socratic dialogue generation (Groq LLM)
 - **Fact-Checker** — answer validation via RAG (ChromaDB) + web search
@@ -32,8 +32,8 @@ Socratic Viva v2 is a platform that conducts adaptive oral exams via a pipeline 
 ### 1. Clone & configure
 
 ```bash
-git clone <repo-url>
-cd socratic-viva-v2
+git clone <https://github.com/Marouanemounir/OraIA.git>
+cd oraIA-version1
 cp .env.example .env
 # Fill in GROQ_API_KEY and SECRET_KEY in .env
 ```
@@ -69,7 +69,7 @@ docker-compose up --build
 ## Project Structure
 
 ```
-socratic-viva-v2/
+oraIA-version1/
 ├── backend/
 │   ├── app/
 │   │   ├── agents/      # LangGraph multi-agent pipeline
