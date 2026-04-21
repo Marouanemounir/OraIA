@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    container_name: socratic_viva_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - chroma_data:/app/chroma_data
+      - uploads:/app/uploads
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  frontend:
+    # TODO: uncomment after Next.js scaffold is generated
+    # build: ./frontend
+    # container_name: socratic_viva_frontend
+    # ports:
+    #   - "3000:3000"
+    # env_file:
+    #   - .env
+    image: alpine
+    command: echo "Frontend not yet scaffolded — run: cd frontend && npx create-next-app@latest ."
+
+volumes:
+  chroma_data:
+  uploads:
