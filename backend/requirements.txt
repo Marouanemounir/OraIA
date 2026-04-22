@@ -14,7 +14,9 @@ email-validator==2.2.0
 # AI / LLM
 langchain==0.3.13
 langchain-groq==0.2.3
+langchain-text-splitters==0.3.4
 langgraph==0.2.60
+langgraph-checkpoint==2.0.10
 groq==0.13.1
 
 # RAG
@@ -25,6 +27,7 @@ tiktoken==0.8.0
 
 # Configuration
 pydantic-settings==2.7.0
+python-dotenv==1.0.1
 
 # Web search (fact-checker fallback)
 duckduckgo-search==7.2.1

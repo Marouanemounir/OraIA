@@ -1,31 +1,37 @@
-"""Orchestrator — deterministic routing between agents."""
+"""Orchestrator — pure deterministic routing based on exam_status."""
+from __future__ import annotations
+
+from typing import Literal
+
 from app.agents.state import SessionState
+
+EntryNode = Literal["curriculum_mapper", "fact_checker", "grader_final", "end"]
 
 
 class OrchestratorAgent:
-    """
-    Decides which agent handles the next step based on session state.
-    No LLM call — pure deterministic logic.
-    """
+    """No LLM call — decides which node enters the pipeline based on exam_status."""
 
-    MAX_TURNS = 20
+    DEFAULT_MAX_TURNS = 8
 
-    def route(self, state: SessionState) -> str:
-        """Return the name of the next agent node."""
-        if state.exam_finished or state.turn_count >= self.MAX_TURNS:
-            return "grader"  # Final grading pass
+    @staticmethod
+    def _max_turns(state: SessionState) -> int:
+        return state.get("max_turns") or OrchestratorAgent.DEFAULT_MAX_TURNS
 
-        if state.remediation_needed:
-            return "pedagogical_agent"
+    def route(self, state: SessionState) -> EntryNode:
+        status = state.get("exam_status", "mapping")
 
-        if state.turn_count % 5 == 0 and state.turn_count > 0:
-            return "curriculum_mapper"  # Periodic concept-map refresh
+        if status == "mapping":
+            return "curriculum_mapper"
 
-        # Default flow: fact-check → interrogate
-        if state.current_student_input and state.fact_check_verdict is None:
+        if status == "examining":
+            if state.get("current_turn", 0) >= self._max_turns(state):
+                return "grader_final"
             return "fact_checker"
 
-        return "interrogator"
+        if status == "grading_final":
+            return "grader_final"
+
+        return "end"
 
 
 orchestrator = OrchestratorAgent()
