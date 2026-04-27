@@ -5,7 +5,7 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Only protect routes under /(main) group — /dashboard, /classrooms, /exam
-  const protectedPrefixes = ["/dashboard", "/classrooms", "/exam"];
+  const protectedPrefixes = ["/dashboard", "/classrooms", "/exam", "/results"];
   const isProtected = protectedPrefixes.some((p) => pathname.startsWith(p));
 
   if (!isProtected) {
@@ -23,5 +23,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/classrooms/:path*", "/exam/:path*"],
+  matcher: ["/dashboard/:path*", "/classrooms/:path*", "/exam/:path*", "/results/:path*"],
 };
