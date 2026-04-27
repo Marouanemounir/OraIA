@@ -79,6 +79,20 @@ async def list_classrooms(
     )
 
 
+@router.get("/{classroom_id}", response_model=ClassroomResponse)
+async def get_classroom(
+    classroom_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Retourne le détail d'une classe (teacher propriétaire ou student inscrit)."""
+    classroom = db.query(Classroom).filter(Classroom.id == classroom_id).first()
+    if not classroom:
+        raise HTTPException(status_code=404, detail="Classe introuvable")
+    _ensure_classroom_access(classroom, user, db)
+    return classroom
+
+
 @router.post(
     "/{classroom_id}/enroll",
     response_model=EnrollmentResponse,

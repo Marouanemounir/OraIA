@@ -1,15 +1,11 @@
 "use client";
 
-import { useEffect, useState, useRef, use } from "react";
+import { useState, useRef, use } from "react";
 import { toast } from "sonner";
 
-import {
-  api,
-  type ClassroomResponse,
-  type UserResponse,
-  type CourseMaterialResponse,
-} from "@/lib/api";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useClassroom } from "@/lib/hooks/useClassroom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,12 +40,15 @@ export default function ClassroomDetailPage({
   const { id } = use(params);
   const classroomId = parseInt(id, 10);
   const { user } = useAuth();
-
-  const [classroom, setClassroom] = useState<ClassroomResponse | null>(null);
-  const [students, setStudents] = useState<UserResponse[]>([]);
-  const [courses, setCourses] = useState<CourseMaterialResponse[]>([]);
-  const [loadingStudents, setLoadingStudents] = useState(true);
-  const [loadingCourses, setLoadingCourses] = useState(true);
+  const {
+    classroom,
+    students,
+    courses,
+    loading,
+    error,
+    refetchStudents,
+    refetchCourses,
+  } = useClassroom(classroomId);
 
   // Enroll dialog
   const [enrollDialogOpen, setEnrollDialogOpen] = useState(false);
@@ -61,32 +60,6 @@ export default function ClassroomDetailPage({
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
-  useEffect(() => {
-    // Load classroom details from the classrooms list
-    api.getClassrooms().then((classrooms) => {
-      const found = classrooms.find((c) => c.id === classroomId);
-      if (found) setClassroom(found);
-    });
-
-    // Load students
-    api
-      .getStudents(classroomId)
-      .then(setStudents)
-      .catch((err) =>
-        toast.error(err instanceof Error ? err.message : "Erreur chargement étudiants")
-      )
-      .finally(() => setLoadingStudents(false));
-
-    // Load courses
-    api
-      .getCourses(classroomId)
-      .then(setCourses)
-      .catch((err) =>
-        toast.error(err instanceof Error ? err.message : "Erreur chargement cours")
-      )
-      .finally(() => setLoadingCourses(false));
-  }, [classroomId]);
-
   const handleEnroll = async (e: React.FormEvent) => {
     e.preventDefault();
     setEnrolling(true);
@@ -95,9 +68,7 @@ export default function ClassroomDetailPage({
       toast.success("Étudiant inscrit avec succès !");
       setEnrollEmail("");
       setEnrollDialogOpen(false);
-      // Refresh students
-      const updatedStudents = await api.getStudents(classroomId);
-      setStudents(updatedStudents);
+      await refetchStudents();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erreur d'inscription");
     } finally {
@@ -121,13 +92,13 @@ export default function ClassroomDetailPage({
     }, 100);
 
     try {
-      await api.uploadCourse(classroomId, file);
+      const result = await api.uploadCourse(classroomId, file);
       clearInterval(interval);
       setUploadProgress(100);
-      toast.success("PDF uploadé avec succès !");
-      // Refresh courses
-      const updatedCourses = await api.getCourses(classroomId);
-      setCourses(updatedCourses);
+      toast.success(
+        `PDF uploadé avec succès ! ${result.chunk_count} chunks indexés.`
+      );
+      await refetchCourses();
     } catch (err) {
       clearInterval(interval);
       toast.error(err instanceof Error ? err.message : "Erreur d'upload");
@@ -140,6 +111,58 @@ export default function ClassroomDetailPage({
   };
 
   const isTeacher = user?.role === "teacher";
+
+  // ── Loading skeleton ──────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <div className="h-8 w-64 bg-gray-200 rounded-lg animate-pulse" />
+          <div className="h-4 w-96 bg-gray-100 rounded animate-pulse" />
+        </div>
+        <div className="h-10 w-80 bg-gray-100 rounded-lg animate-pulse" />
+        <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-gray-200 animate-pulse" />
+              <div className="space-y-1.5 flex-1">
+                <div className="h-4 w-1/3 bg-gray-200 rounded animate-pulse" />
+                <div className="h-3 w-1/4 bg-gray-100 rounded animate-pulse" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Error state ───────────────────────────────────────────────────────────
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="bg-red-50 rounded-full p-4 mb-4">
+          <svg
+            width="32"
+            height="32"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#EF4444"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="15" y1="9" x2="9" y2="15" />
+            <line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+        </div>
+        <p className="text-gray-700 font-medium">{error}</p>
+        <p className="text-sm text-gray-400 mt-1">
+          Impossible de charger cette classe
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -158,19 +181,15 @@ export default function ClassroomDetailPage({
         <TabsList className="w-full justify-start mb-4">
           <TabsTrigger value="students" className="cursor-pointer">
             Étudiants
-            {!loadingStudents && (
-              <Badge variant="secondary" className="ml-2 text-xs">
-                {students.length}
-              </Badge>
-            )}
+            <Badge variant="secondary" className="ml-2 text-xs">
+              {students.length}
+            </Badge>
           </TabsTrigger>
           <TabsTrigger value="courses" className="cursor-pointer">
             Supports de cours
-            {!loadingCourses && (
-              <Badge variant="secondary" className="ml-2 text-xs">
-                {courses.length}
-              </Badge>
-            )}
+            <Badge variant="secondary" className="ml-2 text-xs">
+              {courses.length}
+            </Badge>
           </TabsTrigger>
           <TabsTrigger value="exams" className="cursor-pointer">
             Examens
@@ -181,22 +200,19 @@ export default function ClassroomDetailPage({
         <TabsContent value="students">
           <Card className="border border-gray-100">
             <CardContent className="p-0">
-              {loadingStudents ? (
-                <div className="p-6 space-y-3">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-gray-200 animate-pulse" />
-                      <div className="space-y-1.5 flex-1">
-                        <div className="h-4 w-1/3 bg-gray-200 rounded animate-pulse" />
-                        <div className="h-3 w-1/4 bg-gray-100 rounded animate-pulse" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : students.length === 0 ? (
+              {students.length === 0 ? (
                 <div className="py-16 flex flex-col items-center justify-center text-center">
                   <div className="bg-gray-50 rounded-full p-4 mb-4">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <svg
+                      width="32"
+                      height="32"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#9CA3AF"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
                       <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
                       <circle cx="9" cy="7" r="4" />
                       <line x1="19" y1="8" x2="19" y2="14" />
@@ -238,14 +254,26 @@ export default function ClassroomDetailPage({
               {/* Enroll button */}
               {isTeacher && (
                 <div className="px-6 py-4 border-t border-gray-100">
-                  <Dialog open={enrollDialogOpen} onOpenChange={setEnrollDialogOpen}>
+                  <Dialog
+                    open={enrollDialogOpen}
+                    onOpenChange={setEnrollDialogOpen}
+                  >
                     <DialogTrigger asChild>
                       <Button
                         id="enroll-student-button"
                         variant="outline"
                         className="w-full cursor-pointer"
                       >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="mr-2">
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          className="mr-2"
+                        >
                           <line x1="12" y1="5" x2="12" y2="19" />
                           <line x1="5" y1="12" x2="19" y2="12" />
                         </svg>
@@ -257,22 +285,29 @@ export default function ClassroomDetailPage({
                         <DialogTitle>Inscrire un étudiant</DialogTitle>
                       </DialogHeader>
                       <form onSubmit={handleEnroll} className="space-y-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="student-email">
-                            Email de l&apos;étudiant
-                          </Label>
-                          <Input
-                            id="student-email"
-                            type="email"
-                            placeholder="etudiant@exemple.com"
-                            value={enrollEmail}
-                            onChange={(e) => setEnrollEmail(e.target.value)}
-                            required
-                          />
-                        </div>
+                        <fieldset disabled={enrolling} className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="student-email">
+                              Email de l&apos;étudiant
+                            </Label>
+                            <Input
+                              id="student-email"
+                              type="email"
+                              placeholder="etudiant@exemple.com"
+                              value={enrollEmail}
+                              onChange={(e) => setEnrollEmail(e.target.value)}
+                              required
+                            />
+                          </div>
+                        </fieldset>
                         <DialogFooter className="gap-2">
                           <DialogClose asChild>
-                            <Button type="button" variant="outline" className="cursor-pointer">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="cursor-pointer"
+                              disabled={enrolling}
+                            >
                               Annuler
                             </Button>
                           </DialogClose>
@@ -283,7 +318,32 @@ export default function ClassroomDetailPage({
                             className="text-white cursor-pointer"
                             style={{ backgroundColor: "#2E75B6" }}
                           >
-                            {enrolling ? "Inscription…" : "Inscrire"}
+                            {enrolling ? (
+                              <span className="flex items-center gap-2">
+                                <svg
+                                  className="animate-spin h-4 w-4"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                >
+                                  <circle
+                                    className="opacity-25"
+                                    cx="12"
+                                    cy="12"
+                                    r="10"
+                                    stroke="currentColor"
+                                    strokeWidth="4"
+                                  />
+                                  <path
+                                    className="opacity-75"
+                                    fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                  />
+                                </svg>
+                                Inscription…
+                              </span>
+                            ) : (
+                              "Inscrire"
+                            )}
                           </Button>
                         </DialogFooter>
                       </form>
@@ -299,22 +359,19 @@ export default function ClassroomDetailPage({
         <TabsContent value="courses">
           <Card className="border border-gray-100">
             <CardContent className="p-0">
-              {loadingCourses ? (
-                <div className="p-6 space-y-3">
-                  {[1, 2].map((i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-gray-200 animate-pulse" />
-                      <div className="space-y-1.5 flex-1">
-                        <div className="h-4 w-1/2 bg-gray-200 rounded animate-pulse" />
-                        <div className="h-3 w-1/3 bg-gray-100 rounded animate-pulse" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : courses.length === 0 ? (
+              {courses.length === 0 ? (
                 <div className="py-16 flex flex-col items-center justify-center text-center">
                   <div className="bg-gray-50 rounded-full p-4 mb-4">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <svg
+                      width="32"
+                      height="32"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#9CA3AF"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
                       <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
                       <polyline points="14,2 14,8 20,8" />
                     </svg>
@@ -334,7 +391,16 @@ export default function ClassroomDetailPage({
                       className="flex items-center gap-3 px-6 py-3.5 hover:bg-gray-50/50 transition-colors"
                     >
                       <div className="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <svg
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#EF4444"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
                           <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
                           <polyline points="14,2 14,8 20,8" />
                         </svg>
@@ -424,12 +490,48 @@ export default function ClassroomDetailPage({
                     disabled={uploading}
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="mr-2">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="17,8 12,3 7,8" />
-                      <line x1="12" y1="3" x2="12" y2="15" />
-                    </svg>
-                    Uploader un PDF
+                    {uploading ? (
+                      <span className="flex items-center gap-2">
+                        <svg
+                          className="animate-spin h-4 w-4"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                          />
+                        </svg>
+                        Upload en cours…
+                      </span>
+                    ) : (
+                      <>
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          className="mr-2"
+                        >
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="17,8 12,3 7,8" />
+                          <line x1="12" y1="3" x2="12" y2="15" />
+                        </svg>
+                        Uploader un PDF
+                      </>
+                    )}
                   </Button>
                 </div>
               )}
@@ -442,7 +544,16 @@ export default function ClassroomDetailPage({
           <Card className="border border-gray-100">
             <CardContent className="py-16 flex flex-col items-center justify-center text-center">
               <div className="bg-gray-50 rounded-full p-4 mb-4">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  width="32"
+                  height="32"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#9CA3AF"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
                   <polyline points="14,2 14,8 20,8" />
                   <path d="M9 15l2 2 4-4" />
@@ -460,6 +571,7 @@ export default function ClassroomDetailPage({
                   className="text-white cursor-pointer"
                   style={{ backgroundColor: "#2E75B6" }}
                   disabled
+                  title="Disponible bientôt"
                 >
                   Lancer un examen
                 </Button>

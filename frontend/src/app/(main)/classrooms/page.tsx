@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { api, type ClassroomResponse } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,11 @@ import {
 
 export default function ClassroomsPage() {
   const router = useRouter();
+  const { user } = useAuth();
   const [classrooms, setClassrooms] = useState<ClassroomResponse[]>([]);
+  const [studentCounts, setStudentCounts] = useState<Record<number, number>>(
+    {}
+  );
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -33,6 +38,23 @@ export default function ClassroomsPage() {
     try {
       const data = await api.getClassrooms();
       setClassrooms(data);
+
+      // Fetch student counts in parallel
+      const counts: Record<number, number> = {};
+      const results = await Promise.all(
+        data.map(async (c) => {
+          try {
+            const students = await api.getStudents(c.id);
+            return { id: c.id, count: students.length };
+          } catch {
+            return { id: c.id, count: 0 };
+          }
+        })
+      );
+      results.forEach(({ id, count }) => {
+        counts[id] = count;
+      });
+      setStudentCounts(counts);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erreur de chargement");
     } finally {
@@ -56,11 +78,15 @@ export default function ClassroomsPage() {
       setLoading(true);
       await fetchClassrooms();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erreur lors de la création");
+      toast.error(
+        err instanceof Error ? err.message : "Erreur lors de la création"
+      );
     } finally {
       setCreating(false);
     }
   };
+
+  const isTeacher = user?.role === "teacher";
 
   // Loading skeletons
   if (loading) {
@@ -118,27 +144,31 @@ export default function ClassroomsPage() {
               Aucune classe pour le moment
             </p>
             <p className="text-sm text-gray-400 mb-6">
-              Créez votre première classe pour commencer
+              {isTeacher
+                ? "Créez votre première classe pour commencer"
+                : "Vous n'êtes inscrit dans aucune classe"}
             </p>
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button
-                  id="create-first-classroom"
-                  className="text-white cursor-pointer"
-                  style={{ backgroundColor: "#2E75B6" }}
-                >
-                  Créer ma première classe
-                </Button>
-              </DialogTrigger>
-              <CreateClassroomDialog
-                name={newName}
-                setName={setNewName}
-                desc={newDesc}
-                setDesc={setNewDesc}
-                creating={creating}
-                onSubmit={handleCreate}
-              />
-            </Dialog>
+            {isTeacher && (
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    id="create-first-classroom"
+                    className="text-white cursor-pointer"
+                    style={{ backgroundColor: "#2E75B6" }}
+                  >
+                    Créer ma première classe
+                  </Button>
+                </DialogTrigger>
+                <CreateClassroomDialog
+                  name={newName}
+                  setName={setNewName}
+                  desc={newDesc}
+                  setDesc={setNewDesc}
+                  creating={creating}
+                  onSubmit={handleCreate}
+                />
+              </Dialog>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -170,7 +200,7 @@ export default function ClassroomsPage() {
                       <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
                       <circle cx="9" cy="7" r="4" />
                     </svg>
-                    0
+                    {studentCounts[classroom.id] ?? 0}
                   </Badge>
                 </div>
                 {classroom.description && (
@@ -193,7 +223,7 @@ export default function ClassroomsPage() {
       )}
 
       {/* Floating action button */}
-      {classrooms.length > 0 && (
+      {classrooms.length > 0 && isTeacher && (
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <button
@@ -202,7 +232,15 @@ export default function ClassroomsPage() {
               style={{ backgroundColor: "#2E75B6" }}
               title="Créer une classe"
             >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+              >
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
@@ -243,28 +281,35 @@ function CreateClassroomDialog({
         <DialogTitle>Nouvelle classe</DialogTitle>
       </DialogHeader>
       <form onSubmit={onSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="classroom-name">Nom de la classe</Label>
-          <Input
-            id="classroom-name"
-            placeholder="ex: Mathématiques L2"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="classroom-desc">Description</Label>
-          <Input
-            id="classroom-desc"
-            placeholder="ex: Algèbre linéaire et analyse 2024-2025"
-            value={desc}
-            onChange={(e) => setDesc(e.target.value)}
-          />
-        </div>
+        <fieldset disabled={creating} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="classroom-name">Nom de la classe</Label>
+            <Input
+              id="classroom-name"
+              placeholder="ex: Mathématiques L2"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="classroom-desc">Description</Label>
+            <Input
+              id="classroom-desc"
+              placeholder="ex: Algèbre linéaire et analyse 2024-2025"
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+            />
+          </div>
+        </fieldset>
         <DialogFooter className="gap-2">
           <DialogClose asChild>
-            <Button type="button" variant="outline" className="cursor-pointer">
+            <Button
+              type="button"
+              variant="outline"
+              className="cursor-pointer"
+              disabled={creating}
+            >
               Annuler
             </Button>
           </DialogClose>
@@ -275,7 +320,32 @@ function CreateClassroomDialog({
             className="text-white cursor-pointer"
             style={{ backgroundColor: "#2E75B6" }}
           >
-            {creating ? "Création…" : "Créer"}
+            {creating ? (
+              <span className="flex items-center gap-2">
+                <svg
+                  className="animate-spin h-4 w-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+                Création…
+              </span>
+            ) : (
+              "Créer"
+            )}
           </Button>
         </DialogFooter>
       </form>

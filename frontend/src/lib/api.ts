@@ -94,6 +94,48 @@ class ApiClient {
     });
 
     if (!res.ok) {
+      // ── 401 Unauthorized: token expired → auto-logout ──────────────────
+      if (res.status === 401) {
+        const hadToken = !!this.getToken();
+        if (hadToken) {
+          this.clearToken();
+          if (typeof window !== "undefined") {
+            window.location.href = "/login";
+          }
+        }
+        let message = "Session expirée";
+        try {
+          const body = await res.json();
+          message = body.detail || message;
+        } catch {
+          // keep default
+        }
+        throw new Error(message);
+      }
+
+      // ── 422 Validation Error: parse FastAPI detail array ───────────────
+      if (res.status === 422) {
+        try {
+          const body = await res.json();
+          if (Array.isArray(body.detail)) {
+            const messages = body.detail
+              .map((e: { msg: string; loc?: string[] }) => {
+                const field = e.loc?.slice(-1)[0];
+                return field && field !== "__root__"
+                  ? `${field} : ${e.msg}`
+                  : e.msg;
+              })
+              .join(" • ");
+            throw new Error(messages);
+          }
+          throw new Error(body.detail || "Erreur de validation");
+        } catch (err) {
+          if (err instanceof Error) throw err;
+          throw new Error("Erreur de validation");
+        }
+      }
+
+      // ── Other errors ──────────────────────────────────────────────────
       let message = `Erreur ${res.status}`;
       try {
         const body = await res.json();
@@ -155,6 +197,10 @@ class ApiClient {
 
   async getClassrooms(): Promise<ClassroomResponse[]> {
     return this.request<ClassroomResponse[]>("/classrooms/");
+  }
+
+  async getClassroom(id: number): Promise<ClassroomResponse> {
+    return this.request<ClassroomResponse>(`/classrooms/${id}`);
   }
 
   async createClassroom(
